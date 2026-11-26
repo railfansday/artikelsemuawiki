@@ -1,7 +1,7 @@
 {
-  "lastBuild": "2026-11-26T11:20:43.268392",
-  "totalNewArticles": 118,
-  "totalDuplicates": 2,
-  "sourceMode": "wikipedia_trending",
+  "lastBuild": "2026-11-26T11:43:29.811602",
+  "totalNewArticles": 33,
+  "totalDuplicates": 95,
+  "sourceMode": "wikipedia_trending_and_articles",
   "status": "Success"
 }
