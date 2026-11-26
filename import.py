@@ -25,7 +25,7 @@ ITEMS_PER_PAGE = 200
 USE_WIKI_TRENDING = True
 INCLUDE_WIKI_ARTICLES = True
 WIKI_PROJECT = "en.wikipedia"  # Ubah ke "id.wikipedia" jika ingin topik trending Indonesia
-WIKI_KEYWORD_LIMIT = 15
+WIKI_KEYWORD_LIMIT = 35
 WIKI_DAYS_AGO = 1
 GOOGLE_NEWS_HL = "en-US"
 GOOGLE_NEWS_GL = "US"
@@ -75,11 +75,45 @@ EN_SYNONYMS = {
 }
 
 CATEGORY_RULES = {
-    "AI & Tech": ["ai", "openai", "claude", "gemini", "llm", "chatgpt", "robot", "software", "cloud", "google", "microsoft", "meta", "anthropic"],
-    "Hardware & Chips": ["nvidia", "amd", "intel", "chip", "gpu", "cpu", "semiconductor", "tsmc", "processor", "laptop", "gaming"],
-    "EV & Auto": ["ev", "electric", "tesla", "byd", "car", "suv", "vehicle", "battery", "autonomous", "waymo", "cybertruck", "motor"],
-    "Gadgets": ["apple", "iphone", "android", "samsung", "pixel", "phone", "smartphone", "camera", "watch", "ipad", "macbook"],
-    "Business & Policy": ["trump", "senate", "law", "investigation", "china", "tariff", "billion", "million", "ceo", "stock", "market", "sec", "trade"]
+    "AI & Tech": ["ai", "openai", "claude", "gemini", "llm", "chatgpt", "robot", "software", "cloud", "google", "microsoft", "meta", "anthropic", "tech", "app", "digital"],
+    "Hardware & Chips": ["nvidia", "amd", "intel", "chip", "gpu", "cpu", "semiconductor", "tsmc", "processor", "laptop", "gaming", "console", "hardware"],
+    "EV & Auto": ["ev", "electric", "tesla", "byd", "car", "suv", "vehicle", "battery", "autonomous", "waymo", "cybertruck", "motor", "auto", "drive"],
+    "Gadgets": ["apple", "iphone", "android", "samsung", "pixel", "phone", "smartphone", "camera", "watch", "ipad", "macbook", "device", "screen"],
+    "Business & Policy": ["trump", "senate", "law", "investigation", "china", "tariff", "billion", "million", "ceo", "stock", "market", "sec", "trade", "policy", "economy"]
+}
+
+CATEGORY_FALLBACK_IMAGES = {
+    "AI & Tech": [
+        "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=800&q=80"
+    ],
+    "Hardware & Chips": [
+        "https://images.unsplash.com/photo-1591799264318-7e6ef8ddb7ea?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1587202372775-e229f172b9d7?auto=format&fit=crop&w=800&q=80"
+    ],
+    "EV & Auto": [
+        "https://images.unsplash.com/photo-1593941707882-a5bba14938c7?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1560958089-b8a1929cea89?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=800&q=80"
+    ],
+    "Gadgets": [
+        "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1498049794561-7780e7231661?auto=format&fit=crop&w=800&q=80"
+    ],
+    "Business & Policy": [
+        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=800&q=80"
+    ],
+    "General": [
+        "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=800&q=80",
+        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80"
+    ]
 }
 
 STOP_WORDS = {
@@ -104,6 +138,13 @@ ADSTERRA_CODE = """
 </div>
 """
 
+def get_fallback_image_for_title(title):
+    """Memilih gambar cadangan yang relevan dan bervariasi berdasarkan kategori judul."""
+    cat = detect_category(title)
+    pool = CATEGORY_FALLBACK_IMAGES.get(cat, CATEGORY_FALLBACK_IMAGES["General"])
+    idx = sum(ord(c) for c in str(title)) % len(pool)
+    return pool[idx]
+
 def fetch_wikipedia_trending_keywords(project=WIKI_PROJECT, limit=WIKI_KEYWORD_LIMIT, days_ago=WIKI_DAYS_AGO):
     """Mengambil daftar topik/keyword paling banyak dilihat dari Wikipedia Pageviews API."""
     keywords = []
@@ -112,7 +153,7 @@ def fetch_wikipedia_trending_keywords(project=WIKI_PROJECT, limit=WIKI_KEYWORD_L
         "Wikipedia:", "Portal:", "File:", "Berkas:", "Category:",
         "Kategori:", "Help:", "Bantuan:", "Draft:", "Talk:", "Pembicaraan:"
     )
-    for offset in range(days_ago, days_ago + 3):
+    for offset in range(days_ago, days_ago + 4):
         target_date = datetime.now() - timedelta(days=offset)
         yyyy, mm, dd = target_date.strftime("%Y"), target_date.strftime("%m"), target_date.strftime("%d")
         url = f"https://wikimedia.org/api/rest_v1/metrics/pageviews/top/{project}/all-access/{yyyy}/{mm}/{dd}"
@@ -128,7 +169,7 @@ def fetch_wikipedia_trending_keywords(project=WIKI_PROJECT, limit=WIKI_KEYWORD_L
                     continue
                 clean_kw = re.sub(r'\s+', ' ', title.replace("_", " ")).strip()
                 clean_kw = re.sub(r'\s*\([^)]*\)$', '', clean_kw).strip()
-                if len(clean_kw) >= 3 and clean_kw not in keywords:
+                if len(clean_kw) >= 2 and clean_kw not in keywords:
                     keywords.append(clean_kw)
                 if len(keywords) >= limit:
                     break
@@ -156,11 +197,9 @@ def fetch_wikipedia_article_summary(keyword, project=WIKI_PROJECT):
         if resp.status_code != 200:
             return None
         data = resp.json()
-        if data.get("type") == "disambiguation":
-            return None
 
         extract = (data.get("extract") or "").strip()
-        if len(extract) < 40:
+        if len(extract) < 20:
             return None
 
         title = normalize_article_title(data.get("title") or keyword)
@@ -176,7 +215,11 @@ def fetch_wikipedia_article_summary(keyword, project=WIKI_PROJECT):
         elif isinstance(data.get("originalimage"), dict) and data["originalimage"].get("source"):
             img_url = data["originalimage"]["source"]
 
-        img_url = validate_image_url(img_url)
+        if not img_url:
+            img_url = get_fallback_image_for_title(title)
+        else:
+            img_url = validate_image_url(img_url, fallback_title=title)
+
         return {
             "title": f"Wikipedia Overview: {title}",
             "description": description,
@@ -301,7 +344,7 @@ def get_article_abs_url(title, artikel_id):
 def apply_synonym_spin(text):
     for pattern, replacements in EN_SYNONYMS.items():
         if re.search(pattern, text, flags=re.IGNORECASE):
-            if random.random() < 0.6:
+            if random.random() < 0.35:
                 rep = random.choice(replacements)
                 def replace_match(match):
                     word = match.group(0)
@@ -318,7 +361,7 @@ def paraphrase_title(title):
         return title
     spun_title = apply_synonym_spin(title.strip())
     prefixes = ["Latest Update: ", "Tech Report: ", "Industry News: ", "Breaking: "]
-    if random.random() < 0.30 and not any(spun_title.startswith(p) for p in prefixes):
+    if random.random() < 0.20 and not any(spun_title.startswith(p) for p in prefixes):
         spun_title = random.choice(prefixes) + spun_title
     return spun_title
 
@@ -343,7 +386,7 @@ def local_paraphrase(text_html):
                 continue
             text = apply_synonym_spin(text)
             sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
-            if sentences and len(sentences) > 1 and random.random() < 0.55:
+            if sentences and len(sentences) > 1 and random.random() < 0.35:
                 first_sent = sentences[0]
                 if not first_sent.startswith(tuple(transition_phrases)):
                     if len(first_sent) > 1 and not first_sent[:2].isupper():
@@ -576,7 +619,7 @@ def generate_news_schema(chunk, page_url):
                     "name": "Global News Desk",
                     "logo": {"@type": "ImageObject", "url": f"{BASE_URL}/favicon.ico"}
                 },
-                "image": gambar if gambar else "https://via.placeholder.com/350x180/2563eb/ffffff?text=Global+News"
+                "image": validate_image_url(gambar, fallback_title=judul)
             }
         }
         item_list.append(entry)
@@ -610,7 +653,7 @@ def generate_json_api_export(rows):
             "title": judul,
             "url": get_article_abs_url(judul, artikel_id),
             "source_link": link,
-            "image": gambar,
+            "image": validate_image_url(gambar, fallback_title=judul),
             "category": detect_category(judul),
             "sentiment": detect_sentiment(judul),
             "source": extract_source_domain(link),
@@ -752,11 +795,11 @@ def export_backend_reports(total_baru, total_duplikat):
     except Exception:
         pass
 
-def extract_full_content(url):
+def extract_full_content(url, fallback_title=""):
     try:
         response = requests.get(url, headers=HEADERS, timeout=10)
         if response.status_code != 200:
-            return None, None, None
+            return None, get_fallback_image_for_title(fallback_title), None
 
         soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -765,8 +808,7 @@ def extract_full_content(url):
         if og_image and og_image.get('content'):
             image_url = og_image['content']
 
-        if not image_url:
-            image_url = "https://via.placeholder.com/350x180/2563eb/ffffff?text=Global+News+Desk"
+        image_url = validate_image_url(image_url, fallback_title=fallback_title)
 
         tanggal = None
         for meta_prop in ['article:published_time', 'article:modified_time', 'datePublished', 'date']:
@@ -802,7 +844,7 @@ def extract_full_content(url):
 
         return "\n".join(full_text), image_url, tanggal
     except Exception:
-        return None, None, None
+        return None, get_fallback_image_for_title(fallback_title), None
 
 def process_single_feed(feed_url, max_entries_per_feed=8):
     feed_url = feed_url.strip()
@@ -823,16 +865,16 @@ def process_single_feed(feed_url, max_entries_per_feed=8):
             if cursor.fetchone():
                 duplikat += 1
                 continue
-            full_text_html, image_url, tanggal = extract_full_content(link)
+            full_text_html, image_url, tanggal = extract_full_content(link, fallback_title=raw_judul)
             if not full_text_html:
                 raw_summary = entry.get('summary', entry.get('description', 'Content not available.'))
                 clean_summary = BeautifulSoup(str(raw_summary), 'html.parser').get_text(" ", strip=True)
                 full_text_html = f"<p>{clean_summary or 'Content not available.'}</p>"
 
-            image_url = validate_image_url(image_url)
+            image_url = validate_image_url(image_url, fallback_title=raw_judul)
 
             judul = paraphrase_title(raw_judul)
-            print(f"[*] Paraphrasing (EN): {judul[:45]}...")
+            print(f"[*] Processing (EN): {judul[:45]}...")
             full_text_html = sanitize_html_content(local_paraphrase(full_text_html))
 
             if not tanggal:
@@ -888,7 +930,7 @@ def generate_standalone_article_pages(rows):
         soup_desc = BeautifulSoup(konten, 'html.parser')
         clean_desc = re.sub(r'\s+', ' ', soup_desc.get_text(" ", strip=True))[:155].replace('"', '&quot;')
         meta_keywords_tag = generate_meta_keywords_tag(judul)
-        img_thumb = gambar if gambar else "https://via.placeholder.com/600x320/2563eb/ffffff?text=Global+News"
+        img_thumb = validate_image_url(gambar, fallback_title=judul)
         category = detect_category(judul)
         sentiment = detect_sentiment(judul)
         source_name = extract_source_domain(link)
@@ -1456,6 +1498,11 @@ def export_paginated_files():
             padding: 3px 8px;
             border-radius: 6px;
         }}
+        .source-badge.wiki-source {{
+            color: #0f766e;
+            background: #f0fdfa;
+            border-color: #99f6e4;
+        }}
         .article-card h2 {{
             font-size: 18px;
             margin: 0 0 10px 0;
@@ -1682,10 +1729,12 @@ def export_paginated_files():
             artikel_id, judul, konten, gambar, tanggal_publish, tanggal_update, link = item
             safe_title = str(judul).replace('"', '').replace("'", '').replace('/', '_').replace('\\', '_')
             rel_article_url = get_article_rel_url(judul, artikel_id)
-            img_thumb = gambar if gambar else "https://via.placeholder.com/350x180/2563eb/ffffff?text=Global+News"
+            img_thumb = validate_image_url(gambar, fallback_title=judul)
             category = detect_category(judul)
             sentiment = detect_sentiment(judul)
             source_name = extract_source_domain(link)
+            is_wiki = source_name.lower() == "wikipedia"
+            source_cls = "source-badge wiki-source" if is_wiki else "source-badge"
             read_mins, word_count = calculate_read_time(konten)
             depth_tier = get_depth_tier(word_count)
             tldr_box = generate_tldr(konten)
@@ -1708,7 +1757,7 @@ def export_paginated_files():
                             <span class="cat-badge" onclick="filterByCategory('{category}', null)">{category}</span>
                             <span class="cat-badge" style="background:#fef3c7; color:#d97706; margin-left:4px;">{sentiment}</span>
                         </div>
-                        <span class="source-badge">🌐 {source_name}</span>
+                        <span class="{source_cls}">🌐 {source_name}</span>
                     </div>
                     <h2><a href="{rel_article_url}">#{artikel_id}. {judul}</a></h2>
                     <div class="article-meta">📅 {tgl_pub} • ⏱️ {read_mins}m • {depth_tier} ({word_count} w)</div>
@@ -1724,7 +1773,7 @@ def export_paginated_files():
                     <div class="badge-row" style="justify-content:flex-start;">
                         <span class="cat-badge" onclick="filterByCategory('{category}', null); closeModal();">{category}</span>
                         <span class="cat-badge" style="background:#fef3c7; color:#d97706; margin-left:4px;">{sentiment}</span>
-                        <span class="source-badge">🌐 {source_name}</span>
+                        <span class="{source_cls}">🌐 {source_name}</span>
                         <a href="{rel_article_url}" class="cat-badge" style="background:#10b981; color:#fff; text-decoration:none;">↗ Open Full Page</a>
                     </div>
                     <h2 style="margin-top:8px;">{judul}</h2>
@@ -2006,13 +2055,7 @@ def export_paginated_files():
             else btn.innerText = '☀️ Light';
         }}
 
-        let savedTheme = localStorage.getItem('themeMode');
-        if (!savedTheme && new Date().getHours() >= 18) {{
-            savedTheme = 'dark';
-        }} else if (!savedTheme) {{
-            savedTheme = 'light';
-        }}
-
+        let savedTheme = localStorage.getItem('themeMode') || 'light';
         if (savedTheme === 'dark') document.body.classList.add('dark-mode');
         else if (savedTheme === 'sepia') document.body.classList.add('sepia-mode');
         else if (savedTheme === 'oled') document.body.classList.add('oled-mode');
@@ -2638,14 +2681,18 @@ def strip_tracking_params(url):
     cleaned = cleaned.replace('?&', '?')
     return cleaned
 
-def validate_image_url(img_url):
-    """42. Memastikan URL gambar valid (http/https) dan bukan data URI atau path rusak."""
+def validate_image_url(img_url, fallback_title=""):
+    """42. Memastikan URL gambar valid (http/https) dan bukan placeholder/ikon rusak."""
+    fallback = get_fallback_image_for_title(fallback_title)
     if not img_url or not isinstance(img_url, str):
-        return "https://via.placeholder.com/350x180/2563eb/ffffff?text=Global+News+Desk"
+        return fallback
     img_url = img_url.strip()
+    bad_markers = ("via.placeholder.com", "gstatic.com/images", "news.google.com", "data:image")
+    if any(m in img_url.lower() for m in bad_markers):
+        return fallback
     if img_url.startswith("https://") or img_url.startswith("http://"):
         return img_url
-    return "https://via.placeholder.com/350x180/2563eb/ffffff?text=Global+News+Desk"
+    return fallback
 
 def generate_meta_keywords_tag(title):
     """43. Menghasilkan tag HTML <meta name="keywords"> siap pakai dari fungsi ekstraksi keyword."""
