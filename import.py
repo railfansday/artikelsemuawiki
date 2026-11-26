@@ -8,7 +8,7 @@ import requests
 import random
 import shutil
 from collections import Counter
-from urllib.parse import urlparse, quote_plus
+from urllib.parse import urlparse, quote
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -21,8 +21,9 @@ OUTPUT_DIR = "."
 ARTIKEL_DIR = "artikel"
 ITEMS_PER_PAGE = 200
 
-# --- KONFIGURASI WIKIPEDIA TRENDING ---
+# --- KONFIGURASI WIKIPEDIA TRENDING & ARTIKEL WIKIPEDIA ---
 USE_WIKI_TRENDING = True
+INCLUDE_WIKI_ARTICLES = True
 WIKI_PROJECT = "en.wikipedia"  # Ubah ke "id.wikipedia" jika ingin topik trending Indonesia
 WIKI_KEYWORD_LIMIT = 15
 WIKI_DAYS_AGO = 1
@@ -141,9 +142,133 @@ def build_google_news_rss_from_keywords(keywords, hl=GOOGLE_NEWS_HL, gl=GOOGLE_N
     """Mengubah daftar keyword trending Wikipedia menjadi URL feed Google News RSS."""
     feeds = []
     for kw in keywords:
-        q = quote_plus(kw)
+        q = quote(kw)
         feeds.append(f"https://news.google.com/rss/search?q={q}&hl={hl}&gl={gl}&ceid={ceid}")
     return feeds
+
+def fetch_wikipedia_article_summary(keyword, project=WIKI_PROJECT):
+    """Mengambil ringkasan, deskripsi, gambar, dan URL halaman Wikipedia untuk sebuah keyword."""
+    lang = project.split(".")[0] if "." in project else "en"
+    encoded_title = quote(keyword.replace(" ", "_"))
+    api_url = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{encoded_title}"
+    try:
+        resp = requests.get(api_url, headers=HEADERS, timeout=12)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if data.get("type") == "disambiguation":
+            return None
+
+        extract = (data.get("extract") or "").strip()
+        if len(extract) < 40:
+            return None
+
+        title = normalize_article_title(data.get("title") or keyword)
+        description = (data.get("description") or "").strip()
+        page_url = (
+            data.get("content_urls", {}).get("desktop", {}).get("page")
+            or f"https://{lang}.wikipedia.org/wiki/{encoded_title}"
+        )
+
+        img_url = None
+        if isinstance(data.get("thumbnail"), dict) and data["thumbnail"].get("source"):
+            img_url = data["thumbnail"]["source"]
+        elif isinstance(data.get("originalimage"), dict) and data["originalimage"].get("source"):
+            img_url = data["originalimage"]["source"]
+
+        img_url = validate_image_url(img_url)
+        return {
+            "title": f"Wikipedia Overview: {title}",
+            "description": description,
+            "extract": extract,
+            "image": img_url,
+            "url": page_url,
+            "source_label": f"Wikipedia ({lang.upper()})"
+        }
+    except Exception:
+        return None
+
+def ingest_wikipedia_articles(keywords, project=WIKI_PROJECT):
+    """Menyimpan ringkasan artikel Wikipedia dari daftar keyword trending ke database SQLite."""
+    if not INCLUDE_WIKI_ARTICLES or not keywords:
+        return 0, 0
+
+    baru = 0
+    duplikat = 0
+    conn = sqlite3.connect(DB_PATH, timeout=15)
+    cursor = conn.cursor()
+
+    for kw in keywords:
+        wiki_data = fetch_wikipedia_article_summary(kw, project=project)
+        if not wiki_data:
+            continue
+
+        link = strip_tracking_params(wiki_data["url"])
+        if not link:
+            continue
+
+        cursor.execute("SELECT id FROM artikel WHERE link = ?", (link,))
+        if cursor.fetchone():
+            duplikat += 1
+            continue
+
+        judul = wiki_data["title"]
+        image_url = wiki_data["image"]
+        extract_text = wiki_data["extract"]
+        desc_text = wiki_data["description"]
+        source_label = wiki_data["source_label"]
+
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', extract_text) if s.strip()]
+        chunks = []
+        for i in range(0, len(sentences), 2):
+            para = " ".join(sentences[i:i + 2]).strip()
+            if para:
+                chunks.append(f"<p>{para}</p>")
+        body_paragraphs = "\n".join(chunks) if chunks else f"<p>{extract_text}</p>"
+
+        desc_html = f"<p><strong>Topic Description:</strong> {desc_text}</p>\n" if desc_text else ""
+        full_text_html = f"""
+        {desc_html}
+        {body_paragraphs}
+        <p style="font-size:12px; color:#64748b; margin-top:16px;">
+            Source: {source_label} &bull; Content licensed under CC BY-SA.
+        </p>
+        """
+        full_text_html = sanitize_html_content(full_text_html)
+
+        tanggal = datetime.now().isoformat()
+        tanggal_update = tanggal
+        img_tag = f'<div style="text-align:center; margin-bottom:20px;"><img src="{image_url}" alt="{judul}" style="max-width:100%; height:auto; border-radius:8px;" loading="lazy"></div>' if image_url else ""
+
+        konten_lengkap = f"""
+        {img_tag}
+        {ADSTERRA_CODE}
+        <div class="article-body" style="line-height: 1.8;">
+            {full_text_html}
+            <p style="margin-top: 25px;">
+                <a href="{link}" target="_blank" rel="nofollow noopener" style="color: #0d6efd; text-decoration: none; font-weight: bold;">
+                    &rarr; Read full article on {source_label}
+                </a>
+            </p>
+        </div>
+        {ADSTERRA_CODE}
+        """
+
+        try:
+            cursor.execute(
+                "INSERT INTO artikel (link, judul, konten, gambar, tanggal_publish, tanggal_update) VALUES (?, ?, ?, ?, ?, ?)",
+                (link, judul, konten_lengkap, image_url, tanggal, tanggal_update)
+            )
+            conn.commit()
+            baru += 1
+            print(f"[WIKI] + {judul[:55]}")
+        except sqlite3.IntegrityError:
+            duplikat += 1
+        except Exception:
+            pass
+
+    conn.close()
+    return baru, duplikat
 
 def save_trending_keywords_log(keywords, filename="wiki_trending_keywords.json"):
     """Menyimpan riwayat keyword trending Wikipedia yang diambil untuk audit/referensi."""
@@ -151,6 +276,7 @@ def save_trending_keywords_log(keywords, filename="wiki_trending_keywords.json")
         payload = {
             "fetched_at": datetime.now().isoformat(),
             "project": WIKI_PROJECT,
+            "include_wiki_articles": INCLUDE_WIKI_ARTICLES,
             "total": len(keywords),
             "keywords": keywords
         }
@@ -250,7 +376,10 @@ def detect_sentiment(title):
 
 def extract_source_domain(url):
     try:
-        netloc = urlparse(str(url)).netloc.lower()
+        url_str = str(url)
+        if "wikipedia.org/wiki/" in url_str:
+            return "Wikipedia"
+        netloc = urlparse(url_str).netloc.lower()
         netloc = re.sub(r'^www\.', '', netloc)
         parts = netloc.split('.')
         if len(parts) >= 2:
@@ -270,7 +399,8 @@ def extract_source_domain(url):
                 'huggingface': 'Hugging Face',
                 'spring': 'PsyBlog',
                 'delish': 'Delish',
-                'google': 'Google News'
+                'google': 'Google News',
+                'wikipedia': 'Wikipedia'
             }
             return special_names.get(name, name.capitalize())
         return netloc or "News Source"
@@ -304,7 +434,7 @@ def generate_tldr(html_content):
         valid_sents = []
         for p in paragraphs:
             txt = p.get_text().strip()
-            if len(txt) > 50 and "read original article" not in txt.lower():
+            if len(txt) > 50 and "read original article" not in txt.lower() and "read full article" not in txt.lower():
                 sents = [s.strip() for s in re.split(r'(?<=[.!?])\s+', txt) if len(s.strip()) > 35]
                 if sents:
                     valid_sents.append(sents[0])
@@ -328,7 +458,11 @@ def generate_table_of_contents(html_content, artikel_id, is_standalone=False):
         body_div = soup.find('div', class_='article-body')
         if not body_div:
             return html_content
-        paragraphs = [p for p in body_div.find_all('p') if "read original article" not in p.get_text().lower()]
+        paragraphs = [
+            p for p in body_div.find_all('p')
+            if "read original article" not in p.get_text().lower()
+            and "read full article" not in p.get_text().lower()
+        ]
         if len(paragraphs) < 5:
             return html_content
 
@@ -598,7 +732,7 @@ def export_backend_reports(total_baru, total_duplikat):
             "lastBuild": datetime.now().isoformat(),
             "totalNewArticles": total_baru,
             "totalDuplicates": total_duplikat,
-            "sourceMode": "wikipedia_trending" if USE_WIKI_TRENDING else "rss_list",
+            "sourceMode": "wikipedia_trending_and_articles" if USE_WIKI_TRENDING else "rss_list",
             "status": "Success"
         }
         with open(os.path.join(OUTPUT_DIR, "scrape_report.json"), "w", encoding="utf-8") as f:
@@ -695,12 +829,11 @@ def process_single_feed(feed_url, max_entries_per_feed=8):
                 clean_summary = BeautifulSoup(str(raw_summary), 'html.parser').get_text(" ", strip=True)
                 full_text_html = f"<p>{clean_summary or 'Content not available.'}</p>"
 
-            if not image_url:
-                image_url = "https://via.placeholder.com/350x180/2563eb/ffffff?text=Global+News+Desk"
+            image_url = validate_image_url(image_url)
 
             judul = paraphrase_title(raw_judul)
             print(f"[*] Paraphrasing (EN): {judul[:45]}...")
-            full_text_html = local_paraphrase(full_text_html)
+            full_text_html = sanitize_html_content(local_paraphrase(full_text_html))
 
             if not tanggal:
                 published_parsed = entry.get('published_parsed')
@@ -754,6 +887,7 @@ def generate_standalone_article_pages(rows):
         safe_title = str(judul).replace('"', '&quot;')
         soup_desc = BeautifulSoup(konten, 'html.parser')
         clean_desc = re.sub(r'\s+', ' ', soup_desc.get_text(" ", strip=True))[:155].replace('"', '&quot;')
+        meta_keywords_tag = generate_meta_keywords_tag(judul)
         img_thumb = gambar if gambar else "https://via.placeholder.com/600x320/2563eb/ffffff?text=Global+News"
         category = detect_category(judul)
         sentiment = detect_sentiment(judul)
@@ -792,6 +926,7 @@ def generate_standalone_article_pages(rows):
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{safe_title}</title>
     <meta name="description" content="{clean_desc}">
+    {meta_keywords_tag}
     <link rel="canonical" href="{abs_url}">
     <meta property="og:title" content="{safe_title}">
     <meta property="og:description" content="{clean_desc}">
@@ -2356,6 +2491,10 @@ def verify_build_health():
 def scrape_massive_rss(batch_size=300):
     init_db()
 
+    total_baru = 0
+    total_duplikat = 0
+    wiki_keywords = []
+
     if USE_WIKI_TRENDING:
         wiki_keywords = fetch_wikipedia_trending_keywords(
             project=WIKI_PROJECT,
@@ -2364,6 +2503,12 @@ def scrape_massive_rss(batch_size=300):
         )
         save_trending_keywords_log(wiki_keywords)
         if wiki_keywords:
+            if INCLUDE_WIKI_ARTICLES:
+                w_baru, w_dup = ingest_wikipedia_articles(wiki_keywords, project=WIKI_PROJECT)
+                total_baru += w_baru
+                total_duplikat += w_dup
+                print(f"[*] Artikel Wikipedia      : +{w_baru} baru, {w_dup} duplikat")
+
             batch_urls = build_google_news_rss_from_keywords(
                 wiki_keywords,
                 hl=GOOGLE_NEWS_HL,
@@ -2397,9 +2542,6 @@ def scrape_massive_rss(batch_size=300):
         print(f"[*] Target Domain Otomatis : {BASE_URL}")
         print(f"[*] Total RSS Unik         : {total_clean_rss}")
         print(f"[*] Memproses Batch RSS    : urutan {start_idx + 1} s/d {end_idx} ({len(batch_urls)} feed)\n")
-
-    total_baru = 0
-    total_duplikat = 0
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(process_single_feed, url): url for url in batch_urls}
@@ -2443,6 +2585,10 @@ def scrape_massive_rss(batch_size=300):
 
     health = verify_build_health()
     print(f"🩺 Health Check Build: {health}")
+
+    write_github_step_summary(
+        f"### Build Summary\n- Domain: `{BASE_URL}`\n- New articles: `{total_baru}`\n- Duplicates: `{total_duplikat}`\n- Total catalog pages: `{total_pages}`"
+    )
 
     print("\n" + "="*45)
     print("[SELESAI] Proses build selesai dengan sukses!")
